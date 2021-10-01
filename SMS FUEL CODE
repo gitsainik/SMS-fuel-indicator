@@ -1,0 +1,205 @@
+#include <SoftwareSerial.h>        //Libraries required for Serial communication, i²c communication, DHT11 and MLX90614
+
+char Received_SMS;              //Here we store the full received SMS (with phone sending number and date/time) as char
+short SONAR_OK=-1;//Used later it shows if there's the word "DHT"/"MLX" within the received SMS "-1" means they are not found
+short LOCATION_OK=-1;
+float petrol1;
+float petrol2;
+int mileage1;
+int mileage2;
+String fuelfound = ("AMOUNT OF FUEL IN LITES IS");
+String locationfound = ("THE ESTIMATED DISTANCE IN KM IS");
+long duration1;
+int value=0;
+float voltage;
+int dist1;
+String link;
+int trig1 = 6;
+int echo1 = 3;
+int alert = 5;
+int button = 7;
+int threshold;
+bool button_State1;
+bool button_State2;
+int voice = 9;
+int PWRKY =4;
+
+String Data_SMS;               //Here's the SMS that we gonna send to the phone number, it may contain DHT data or MLX data
+
+
+SoftwareSerial mySerial(10, 11);                     // RX,TX for Arduino and for the module it's TXD RXD, they should be invert
+bool flag = 0;
+
+
+void setup()
+{
+  pinMode(PWRKY,OUTPUT);
+  digitalWrite(PWRKY, LOW);   //Pull-down
+  delay(1000);                      
+  digitalWrite(PWRKY, HIGH); //Release 
+  Serial.begin(9600);
+  mySerial.begin(9600);
+  pinMode(trig1,OUTPUT);
+  pinMode(echo1,INPUT);
+  pinMode(button, INPUT_PULLUP);
+  pinMode(voice, INPUT_PULLUP);
+  responce = mySerial.println("ATE1"); //Enable Echo if not enabled by default 
+  Serial.print ("Responce:"); Serial.println(responce); 
+  delay(1000);
+
+  responce = mySerial.println("AT+CGATT=1"); //Set the SIM800 in GPRS mode 
+  Serial.print ("Responce:"); Serial.println(responce); 
+  delay(1000);
+
+  responce = mySerial.println("AT+SAPBR=3,1,\"CONTYPE\",\"GPRS\" "); //Activate Bearer profile 
+  Serial.print ("Responce:"); Serial.println(responce); 
+  delay(1000);
+
+  responce = mySerial.println("AT+SAPBR=3,1,\"APN\",\"RCMNET\" "); //Set VPN options => 'RCMNET' 'www'
+  Serial.print ("Responce:"); Serial.println(responce); 
+  delay(2000);
+   
+  responce = mySerial.println("AT+SAPBR=1,1"); //Open bearer Profile
+  Serial.print ("Responce:"); Serial.println(responce); //Open bearer Profile 
+  delay(2000);
+
+  responce = mySerial.println("AT+SAPBR=2,1"); //Get the IP address of the bearer profile 
+  Serial.print ("Responce:"); Serial.println(responce); 
+  delay(1000);
+     Serial.println("Starting ...");
+  delay(3000);         //Delay to let the module connect to network, can be removed
+  ReceiveMode();       //Calling the function that puts the SIM800L moduleon receiving SMS mode
+  
+}
+
+
+
+void loop() {
+  button_State1 = digitalRead(button);
+  button_State2 = digitalRead(voice);
+  digitalWrite(trig1,LOW);
+  delay(2);
+  digitalWrite(trig1,HIGH);
+  delay(10);
+  digitalWrite(trig1,LOW);
+  value=analogRead(A0);
+  voltage=value*(5.0/1024);
+  
+  Serial.println(voltage);
+  petrol2=(voltage/0.0004166666666666667)/1000;
+  mileage2=petrol2*30;
+  Serial.println(petrol2);
+  duration1 = pulseIn(echo1,HIGH);
+  dist1 = duration1*(0.034/2.00);
+  petrol1 = -((((duration1*(0.034/2.00))-10)*100)/1000);
+  mileage1 = dist1*5;
+  Serial.println(petrol1);
+  
+  
+  threshold=dist1;
+  Serial.println(threshold);
+  if(button_State1 == LOW)
+{
+  Serial.println("button pressed");
+  delay(200);
+Send_Data1();
+
+
+
+}
+if(button_State2 == LOW)
+  {
+    Serial.println("voice recognised");
+    delay(500);
+    Send_Data1();
+    
+  }
+  
+  
+  String RSMS;             //We add this new variable String type, and we put it in loop so everytime gets initialized
+                           //This is where we put the Received SMS, yes above there's Recevied_SMS variable, we use a trick below
+                           //To concatenate the "char Recevied_SMS" to "String RSMS" which makes the "RSMS" contains the SMS received but as a String
+                           //The recevied SMS cannot be stored directly as String
+  
+    while(mySerial.available()>0){       //When SIM800L sends something to the Arduino... problably the SMS received... if something else it's not a problem
+        
+        Received_SMS=mySerial.read();  //"char Received_SMS" is now containing the full SMS received
+        Serial.print(Received_SMS);   //Show it on the serial monitor (optional) 
+        RSMS.concat(Received_SMS);    //concatenate "char received_SMS" to RSMS which is "empty"
+        SONAR_OK=RSMS.indexOf("fuel");
+        LOCATION_OK=RSMS.indexOf("location");  
+           //"indexOf function looks for the substring "x" within the String (here RSMS) and gives us its index or position
+                                      //For example if found at the beginning it will give "0" after 1 character it will be "1"
+                                      //If it's not found it will give "-1", so the variables are integers
+        
+    }
+    
+  if(SONAR_OK!=-1){                         //If "fuel" word is found within the SMS, it means that DHT_OK have other value than -1 so we can proceed
+    Serial.println("found fuel");          //Shows on the serial monitor "found DHT" (optional)
+ petrol2=(voltage/0.0004166666666666667)/1000;
+  mileage2 = petrol2*30;                //Come back to Receving SMS mode and wait for other SMS
+  Send_Data1();
+  ReceiveMode();
+    
+    SONAR_OK=-1;                      //If the fuel is found the variable should be reset to -1 otherwise it will be kept as !=-1 and will send SMS over and over
+                          //Maybe not required... I did a lot of tests and maybe at the beginning the RSMS string kept concating and MLX word was kept there
+                                    //And at this point I'm too lazy to reupload the code without it and test...
+  }
+
+
+
+     
+
+}
+
+
+void Serialcom() //This is used with ReceiveMode function, it's okay to use for tests with Serial monitor
+{
+  delay(500);
+  while(Serial.available())                                                                      
+  {
+    mySerial.write(Serial.read());//Forward what Serial received to Software Serial Port
+  }
+  while(mySerial.available())                                                                      
+  {
+    Serial.write(mySerial.read());//Forward what Software Serial received to Serial Port
+  }
+}
+
+void ReceiveMode(){       //Set the SIM800L Receive mode
+  
+  mySerial.println("AT"); //If everything is Okay it will show "OK" on the serial monitor
+  readResponse();
+  mySerial.println("AT+CMGF=1"); // Configuring TEXT mode
+  readResponse();
+  mySerial.println("AT+CNMI=2,2,0,0,0"); //Configure the SIM800L on how to manage the Received SMS... Check the SIM800L AT commands manual
+  readResponse();
+}
+void Send_Data1()
+{
+  Serial.println("Sending data");
+    mySerial.println("AT");
+readResponse();
+  delay(1000);
+  mySerial.println("AT+CMGF=1\r");
+  delay(100);
+  mySerial.println("AT+CMGS=\"\"");\\Mobile number
+  delay(500);
+  mySerial.println(fuelfound);
+  mySerial.println(petrol2);
+  mySerial.println(locationfound);
+  mySerial.println(mileage2);
+  
+  delay(500);
+  mySerial.println((char)26);
+  delay(500);
+  mySerial.println();
+  Serial.println("data sent");
+  delay(500);
+}
+void readResponse()
+{
+  delay(1000);
+  String Response = mySerial.readStringUntil("OK");
+  Serial.println(Response);
+}
